@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Painel de ações com carteira pessoal, dados ao vivo do Yahoo Finance.">
+  <title>Ações — Painel</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23111'/%3E%3Cpath d='M7 21l6-6 4 4 8-9' stroke='%23fff' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="tela-app">
+  <div class="layout">
+    <aside class="menu">
+      <div class="menu__marca">
+        <span class="menu__logo" aria-hidden="true">
+          <svg viewBox="0 0 32 32"><path d="M7 21l6-6 4 4 8-9" stroke="currentColor" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </span>
+        <span>Ações</span>
+      </div>
+
+      <nav class="menu__nav" aria-label="Navegação principal">
+        <button type="button" class="menu__item" data-pagina="acoes">
+          <svg viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 8-9M21 6v5h-5"/></svg>
+          Ações
+        </button>
+        <button type="button" class="menu__item" data-pagina="carteira">
+          <svg viewBox="0 0 24 24"><path d="M4 8h16v11a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V8Z"/><path d="M8 8V6a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+          Minha carteira
+        </button>
+        <button type="button" class="menu__item" data-pagina="conta">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.4"/><path d="M4.5 20c1.3-3.8 4.4-5.7 7.5-5.7s6.2 1.9 7.5 5.7"/></svg>
+          Minha conta
+        </button>
+        <button type="button" class="menu__item" data-pagina="admin" id="menu-admin" hidden>
+          <svg viewBox="0 0 24 24"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3Z"/></svg>
+          Administração
+        </button>
+      </nav>
+
+      <div class="menu__rodape">
+        <div class="menu__usuario">
+          <span class="menu__avatar" id="avatar-usuario">--</span>
+          <span id="nome-usuario">Carregando…</span>
+        </div>
+        <button type="button" class="botao botao--linha" id="botao-sair">Sair</button>
+      </div>
+    </aside>
+
+    <main class="conteudo-app">
+      <div class="aviso" id="aviso-global" role="alert" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8v5m0 3.5v.01M10.3 3.9 2.4 17.6A2 2 0 0 0 4.1 20.6h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
+        <div><strong id="aviso-global-titulo"></strong><p id="aviso-global-texto"></p></div>
+      </div>
+
+      <!-- Bloqueio: troca de senha obrigatória -->
+      <section id="bloqueio-senha" class="painel" hidden style="max-width: 420px;">
+        <h1>Crie sua senha</h1>
+        <p class="subtitulo">Você entrou com uma senha temporária. Antes de continuar, crie uma senha só sua.</p>
+        <form id="form-troca-obrigatoria" class="formulario">
+          <label class="campo"><span>Senha temporária atual</span><input type="password" name="senhaAtual" autocomplete="current-password" required></label>
+          <label class="campo"><span>Nova senha (mínimo 8 caracteres)</span><input type="password" name="senhaNova" autocomplete="new-password" required minlength="8"></label>
+          <label class="campo"><span>Confirme a nova senha</span><input type="password" name="senhaNovaConfirma" autocomplete="new-password" required minlength="8"></label>
+          <div class="aviso aviso--inline" id="aviso-troca-obrigatoria" role="alert" hidden><p></p></div>
+          <button type="submit" class="botao botao--primario">Salvar nova senha</button>
+        </form>
+      </section>
+
+      <!-- Página: Ações -->
+      <section id="pagina-acoes" class="pagina-conteudo" hidden>
+        <h1>Ações</h1>
+        <p class="subtitulo">Cotações ao vivo do Yahoo Finance das ações da sua carteira. <span id="acoes-atualizado"></span></p>
+
+        <div class="painel__cabecalho" style="margin: 22px 0;">
+          <div class="periodo" id="periodo" role="group" aria-label="Período do gráfico e dos indicadores"></div>
+        </div>
+
+        <div class="cards" id="ac-cards" aria-busy="true"></div>
+
+        <section class="painel" aria-labelledby="ac-titulo-grafico" style="margin-top: 20px;">
+          <div class="painel__cabecalho">
+            <div>
+              <h2 id="ac-titulo-grafico">Evolução comparada</h2>
+              <p class="painel__explicacao">Todas as ações começam em <strong>100</strong> no início do período. Se uma linha está em 110, subiu 10% desde o início.</p>
+            </div>
+          </div>
+          <div class="grafico" id="ac-grafico">
+            <canvas id="ac-canvas" role="img" aria-label="Gráfico de linhas com a evolução em base 100 das ações da carteira"></canvas>
+            <p class="grafico__vazio" id="ac-grafico-vazio" hidden>Adicione ações à sua carteira para ver o gráfico.</p>
+          </div>
+        </section>
+
+        <section class="painel" aria-labelledby="ac-titulo-indicadores" style="margin-top: 20px;">
+          <div class="painel__cabecalho">
+            <div>
+              <h2 id="ac-titulo-indicadores">Indicadores do período</h2>
+              <p class="painel__explicacao">Preço inicial e final, variação, máxima, mínima e volatilidade no período escolhido acima.</p>
+            </div>
+            <a class="botao botao--linha botao--pequeno" id="ac-baixar-csv" href="#" download>Baixar CSV</a>
+          </div>
+          <div class="rolagem-tabela" id="ac-indicadores"></div>
+        </section>
+      </section>
+
+      <!-- Página: Minha carteira -->
+      <section id="pagina-carteira" class="pagina-conteudo" hidden>
+        <h1>Minha carteira</h1>
+        <p class="subtitulo">Escolha quais ações você quer acompanhar na página "Ações". Comece digitando o código, por exemplo WEGE3 ou BBAS3.</p>
+
+        <form id="form-add-carteira" class="formulario formulario--linha">
+          <label class="campo campo--cresce">
+            <span>Código da ação</span>
+            <input type="text" name="ticker" placeholder="Ex.: WEGE3" maxlength="12" required>
+          </label>
+          <button type="submit" class="botao botao--primario">Adicionar</button>
+        </form>
+        <div class="aviso aviso--inline" id="aviso-carteira" role="alert" hidden><p></p></div>
+
+        <div class="lista-carteira" id="lista-carteira" aria-busy="true"></div>
+      </section>
+
+      <!-- Página: Minha conta -->
+      <section id="pagina-conta" class="pagina-conteudo" hidden>
+        <h1>Minha conta</h1>
+        <p class="subtitulo" id="conta-resumo">Carregando…</p>
+
+        <h2 style="font-size: 17px; margin-top: 28px;">Trocar senha</h2>
+        <form id="form-troca-senha" class="formulario">
+          <label class="campo"><span>Senha atual</span><input type="password" name="senhaAtual" autocomplete="current-password" required></label>
+          <label class="campo"><span>Nova senha (mínimo 8 caracteres)</span><input type="password" name="senhaNova" autocomplete="new-password" required minlength="8"></label>
+          <label class="campo"><span>Confirme a nova senha</span><input type="password" name="senhaNovaConfirma" autocomplete="new-password" required minlength="8"></label>
+          <div class="aviso aviso--inline" id="aviso-conta" role="alert" hidden><p></p></div>
+          <button type="submit" class="botao botao--primario">Salvar nova senha</button>
+        </form>
+      </section>
+
+      <!-- Página: Administração -->
+      <section id="pagina-admin" class="pagina-conteudo" hidden>
+        <h1>Administração</h1>
+        <p class="subtitulo">Crie usuários, redefina senhas e controle quem é administrador.</p>
+
+        <h2 style="font-size: 17px; margin-top: 28px;">Criar usuário</h2>
+        <form id="form-criar-usuario" class="formulario">
+          <label class="campo"><span>Nome completo</span><input type="text" name="nomeCompleto" required></label>
+          <label class="campo"><span>Nome de usuário</span><input type="text" name="usuario" required></label>
+          <label class="campo"><span>E-mail</span><input type="email" name="email" required></label>
+          <div class="aviso aviso--inline" id="aviso-criar-usuario" role="alert" hidden><p></p></div>
+          <button type="submit" class="botao botao--primario">Criar usuário</button>
+        </form>
+        <div id="senha-gerada-criar" hidden></div>
+
+        <h2 style="font-size: 17px; margin-top: 34px;">Usuários</h2>
+        <div class="rolagem-tabela" id="tabela-admin" aria-busy="true" style="margin-top: 14px;"></div>
+      </section>
+    </main>
+  </div>
+
+  <script src="{{ url_for('static', filename='vendor/chart.umd.min.js') }}"></script>
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Entrar no painel de ações.">
+  <title>Entrar — Ações</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23111'/%3E%3Cpath d='M7 21l6-6 4 4 8-9' stroke='%23fff' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="tela-login">
+  <main class="login">
+    <div class="login__cartao">
+      <p class="sobretitulo">Painel de ações · B3</p>
+      <h1>Entrar</h1>
+      <p class="subtitulo">Use o usuário e a senha que o administrador te passou.</p>
+
+      <div class="aviso" id="aviso-login" role="alert" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8v5m0 3.5v.01M10.3 3.9 2.4 17.6A2 2 0 0 0 4.1 20.6h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
+        <div><strong id="aviso-login-texto"></strong></div>
+      </div>
+
+      <form id="form-login" class="formulario" autocomplete="on">
+        <label class="campo">
+          <span>Usuário</span>
+          <input type="text" name="usuario" autocomplete="username" required autofocus>
+        </label>
+        <label class="campo">
+          <span>Senha</span>
+          <input type="password" name="senha" autocomplete="current-password" required>
+        </label>
+        <button type="submit" class="botao botao--primario" id="botao-entrar">Entrar</button>
+      </form>
+
+      <p class="login__ajuda">Esqueceu a senha? Peça ao administrador para redefinir a sua.</p>
+    </div>
+  </main>
+  <script src="{{ url_for('static', filename='login.js') }}"></script>
+</body>
+</html>

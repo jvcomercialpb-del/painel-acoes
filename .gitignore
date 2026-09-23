@@ -1,0 +1,8 @@
+# Nunca compartilhar nem enviar para a internet
+.env
+dados/banco.db
+dados/chave_secreta.txt
+
+# Arquivos gerados automaticamente pelo Python
+__pycache__/
+*.pyc
