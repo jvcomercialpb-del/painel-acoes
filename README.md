@@ -7,6 +7,8 @@ Publicado na internet via [Railway](https://railway.com), a partir deste
 repositório: toda vez que uma nova versão é enviada para o GitHub, o site
 publica sozinho. Também pode ser rodado só no computador local (veja abaixo).
 
+Link público: https://painel-acoes-production-6d29.up.railway.app/
+
 ## O que o app faz
 
 - **Login obrigatório.** Ninguém vê nada sem entrar com usuário e senha.
