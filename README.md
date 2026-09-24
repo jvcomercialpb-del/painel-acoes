@@ -2,7 +2,10 @@
 
 App que mostra a cotação de ações da B3 ao vivo (direto do Yahoo Finance),
 onde cada pessoa entra com usuário e senha e tem a própria carteira de ações.
-Roda só no seu computador — nada é publicado na internet nesta etapa.
+
+Publicado na internet via [Railway](https://railway.com), a partir deste
+repositório: toda vez que uma nova versão é enviada para o GitHub, o site
+publica sozinho. Também pode ser rodado só no computador local (veja abaixo).
 
 ## O que o app faz
 
