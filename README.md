@@ -9,6 +9,9 @@ publica sozinho. Também pode ser rodado só no computador local (veja abaixo).
 
 Link público: https://painel-acoes-production-6d29.up.railway.app/
 
+Publicar uma nova versão é simples: envie as mudanças para o branch `main`
+deste repositório (`git push`) e o Railway publica sozinho em alguns minutos.
+
 ## O que o app faz
 
 - **Login obrigatório.** Ninguém vê nada sem entrar com usuário e senha.
