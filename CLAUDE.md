@@ -56,8 +56,14 @@ deixe assim no que for entregue ao usuário final.
     uma vez com `secrets.token_hex(32)`. Se for apagada, todas as sessões
     ativas são invalidadas (força novo login), mas nenhum dado é perdido.
 - **`.env`** (não versionado) — usuário/senha/nome/e-mail do primeiro
-  administrador, lidos só quando a tabela `usuarios` está vazia. Ver
-  `.env.exemplo` para o formato.
+  administrador, lidos só quando a tabela `usuarios` está vazia, e
+  `ANTHROPIC_API_KEY` (lida sempre, a cada request à IA). Ver `.env.exemplo`
+  para o formato.
+- **`instrucoes_analise_ia.txt`** — texto de sistema (system prompt) enviado
+  à IA na "Análise do Dia". Fica fora de `app.py` de propósito, para poder
+  ser editado sem tocar no código; é lido do disco a cada chamada (não é
+  cacheado em memória), então uma edição vale imediatamente, sem reiniciar
+  o app.
 
 Não há build step, bundler nem framework de front-end: tudo é HTML/CSS/JS
 servido diretamente pelo Flask (`static/` e `templates/`).
@@ -128,6 +134,51 @@ manual (o banco de um usuário real não pode ser recriado do zero).
   como parâmetro de período. Qualquer período novo na UI precisa ser
   adicionado nessa constante **e** em `PERIODOS` no `static/app.js`.
 
+## Análise do Dia (IA — Anthropic)
+
+- Botão flutuante na página "Ações" (`static/style.css` → `.botao-flutuante`,
+  `templates/index.html` → `#botao-analise-dia`) que abre uma janela
+  (`#janela-analise`) e chama `GET /api/analise-dia?periodo=`.
+- `montar_bloco_dados()` monta o texto numérico da carteira (preço, variação,
+  mín/máx, variação de 5 pregões, tendência de médias móveis 20×50, e
+  volatilidade — reaproveitando `calcular_indicadores()`). A tendência usa
+  sempre 1 ano de histórico (`calcular_tendencia()`), independente do
+  período escolhido na tela, para não depender de janelas curtas demais.
+  **Só esse texto vai para a IA — nunca os gráficos.**
+- `obter_instrucoes_ia()` lê `instrucoes_analise_ia.txt` do disco a cada
+  chamada (arquivo pequeno, sem custo relevante) e vai como `system` na
+  chamada à API da Anthropic.
+- Modelo: `MODELO_IA = "claude-haiku-4-5"` (o mais barato da Anthropic no
+  momento). Chave lida de `ANTHROPIC_API_KEY` a cada request (nunca
+  hardcoded, nunca logada).
+- **Streaming sem SSE de verdade**: a rota devolve `Response(gerar(), ...)`
+  com `mimetype="text/plain"`. O gerador primeiro manda uma linha JSON de
+  metadados (`{"tipo": "meta", ...}` + `\n`) e depois os pedaços de texto de
+  `stream.text_stream` (SDK da Anthropic), conforme chegam. O front-end
+  (`static/app.js` → `iniciarAnaliseDia()`) lê a resposta com
+  `response.body.getReader()`, separa a primeira linha como metadados e
+  escreve o resto na tela conforme chega — sem precisar de `EventSource`
+  nem de um protocolo SSE formal.
+- **Erros nunca viram texto técnico na tela.** Se a chave estiver ausente ou
+  a carteira vazia, a rota devolve JSON comum (`{"erro": ...}`, status
+  4xx/503) *antes* de começar a stream — o front-end detecta pelo
+  `Content-Type` (`application/json` vs. `text/plain`) e trata cada caso.
+  Se o erro acontecer **depois** de a stream já ter começado (ex.: chave
+  ficou inválida no meio do caminho), o gerador manda o texto já escrito até
+  ali seguido do marcador `\n[[ERRO]]` + mensagem amigável
+  (`erro_amigavel_ia()`); o front-end procura por esse marcador nos pedaços
+  recebidos (cuidando de não cortar o marcador ao meio entre dois pedaços).
+- **Cache de 15 min** (`_cache_analise`, `DURACAO_CACHE_ANALISE`), chave
+  `(usuario_id, período, tuple(tickers))` — muda sozinho se a carteira
+  mudar. Numa reutilização, a rota nem chama a IA: devolve JSON
+  (`{"cache": true, "texto": ..., "geradoEm": ...}`) com o texto pronto, e o
+  front-end anima a digitação localmente (`digitarTextoLocal()`) só por
+  efeito visual — nenhuma chamada nova é feita à Anthropic.
+- Testado localmente via `waitress-serve` + `curl`/`Invoke-RestMethod`
+  (chave ausente, chave inválida, carteira vazia, cache, e uma chamada real)
+  — ver histórico de testes no momento em que essa funcionalidade foi
+  adicionada.
+
 ## Rotas de API (todas sob `/api/`, JSON)
 
 | Rota | Método | Autenticação | Descrição |
@@ -140,6 +191,7 @@ manual (o banco de um usuário real não pode ser recriado do zero).
 | `/api/carteira/<ticker>` | DELETE | login | remove ticker |
 | `/api/acoes` | GET | login | `?periodo=` → cards/gráfico/indicadores da carteira |
 | `/api/acoes/csv` | GET | login | mesma coisa, como CSV para baixar |
+| `/api/analise-dia` | GET | login | `?periodo=` → "Análise do Dia" pela IA (streaming em texto puro, ou JSON se veio do cache/erro) |
 | `/api/admin/usuarios` | GET/POST | admin | lista / cria usuário |
 | `/api/admin/usuarios/<id>/redefinir-senha` | POST | admin | gera nova senha temporária |
 | `/api/admin/usuarios/<id>/promover` | POST | admin | vira admin |

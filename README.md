@@ -25,6 +25,12 @@ deste repositório (`git push`) e o Railway publica sozinho em alguns minutos.
 - **Cotações ao vivo**, com cards, gráfico comparativo (com botões de
   período: 1 mês, 3 meses, 6 meses, no ano, 1 ano e máximo), tabela de
   indicadores e um botão para baixar os dados em CSV (abre no Excel).
+- **Análise do Dia (com Inteligência Artificial).** Na página "Ações", um
+  botão fixo no canto inferior direito abre uma janela com um texto
+  explicando, em português simples, como está a carteira no período
+  selecionado — feito pela IA da Anthropic (Claude) a partir só dos números
+  (nunca inventa notícias nem promete retorno). Veja a seção
+  [Análise do Dia](#análise-do-dia-com-ia) mais abaixo.
 
 ## Antes de começar: usuário e senha do primeiro administrador
 
@@ -97,6 +103,74 @@ administrador:
 4. O que estiver na carteira aparece na página **Ações**, com cards, gráfico
    e tabela. Use os botões acima do gráfico para trocar o período.
 
+## Análise do Dia (com IA)
+
+Na página **Ações**, o botão **"Análise do Dia"** (canto inferior direito,
+sempre visível mesmo rolando a página) abre uma janela com um texto sobre a
+sua carteira, escrito pela IA da Anthropic (o mesmo Claude que ajudou a
+construir este app) e que vai "aparecendo" na tela como se estivesse sendo
+digitado.
+
+**Como funciona, por trás da tela:**
+1. O app pega os preços que já busca do Yahoo Finance e calcula os números
+   de cada ação da sua carteira, no período que estiver selecionado (preço
+   atual, variação, mínima/máxima, tendência, volatilidade etc.) — os
+   mesmos cálculos que já aparecem na tabela de indicadores.
+2. Só esses números (nunca o gráfico, nunca uma imagem) são enviados para a
+   IA, junto com as instruções de como escrever (arquivo
+   `instrucoes_analise_ia.txt` — veja abaixo).
+3. A IA escreve um texto curto e didático: uma visão geral, até 2 ações que
+   podem merecer atenção para compra e até 2 que podem pedir cautela, sempre
+   explicando com números e nunca com certeza ("pode", nunca "vai"). No
+   final, sempre aparece o aviso de que não é recomendação de investimento.
+
+**Ajustando o texto que a IA escreve.** As instruções completas estão no
+arquivo `instrucoes_analise_ia.txt`, na pasta do app. Você pode abrir esse
+arquivo (botão direito → Abrir com → Bloco de notas) e ajustar o tom, o
+tamanho ou as regras, sem precisar mexer em mais nada — na próxima vez que
+alguém clicar no botão, o app já usa o texto novo.
+
+**Configurando a chave de acesso.** O botão só funciona depois de configurar
+a chave de acesso à API da Anthropic — a variável `ANTHROPIC_API_KEY`. Sem
+ela, o botão continua aparecendo, mas a janela mostra um aviso amigável
+explicando que a IA ainda não foi configurada. Veja como configurar em
+**"Configurando a chave da IA"**, mais abaixo.
+
+**Por que às vezes a análise aparece na hora, sem "digitar".** Se você (ou
+outra pessoa) clicar no botão de novo em menos de 15 minutos, com a carteira
+e o período iguais aos da última vez, o app reaproveita a análise já feita
+em vez de gastar com a IA de novo — por isso ela aparece completa quase na
+hora, mas a data/hora mostrada (**"análise gerada às HH:MM"**) é sempre a da
+primeira vez que foi gerada.
+
+**Quanto custa.** Cada análise usa o Claude Haiku 4.5, o modelo mais barato
+da Anthropic. Para uma carteira típica (poucas ações), cada análise custa
+uma fração de centavo de dólar — bem abaixo de R$ 0,05. Mesmo testando
+várias vezes ao dia, o gasto tende a ficar irrelevante na fatura.
+
+## Configurando a chave da IA
+
+A chave de acesso à API da Anthropic nunca fica escrita no código nem vai
+para o GitHub — ela mora fora do código, do mesmo jeito que a senha do
+administrador.
+
+**No seu computador:** abra o arquivo `.env` desta pasta (botão direito →
+Abrir com → Bloco de notas) e cole a chave na linha `ANTHROPIC_API_KEY=`,
+sem espaços antes ou depois do sinal de igual. Salve o arquivo e reinicie o
+app (feche a janela preta e abra `Abrir app.bat` de novo) para a chave nova
+valer.
+
+**No Railway (site publicado):** entre no [painel do Railway](https://railway.com),
+abra este projeto, clique na aba **Variables** (Variáveis) do serviço do
+app, clique em **New Variable**, coloque o nome `ANTHROPIC_API_KEY` e cole a
+chave como valor. O Railway reinicia o app sozinho depois de salvar — não
+precisa fazer `git push` nem mexer em código.
+
+Se ainda não tem uma conta na Anthropic para gerar a chave, é só avisar que
+eu te guio pelo terminal, passo a passo, pela criação da conta em
+console.anthropic.com, pela compra de um crédito inicial pequeno e pela
+geração da chave.
+
 ## Como testar que está tudo funcionando
 
 Depois de abrir o app (veja "Como abrir o app" acima):
@@ -127,6 +201,13 @@ Depois de abrir o app (veja "Como abrir o app" acima):
    conta de administrador — o app deve recusar. Se só existir um
    administrador, tente rebaixá-lo a usuário comum — o app também deve
    recusar.
+10. **Análise do Dia**: na página "Ações", clique no botão "Análise do Dia"
+    (canto inferior direito). A janela deve abrir e o texto deve aparecer
+    "sendo digitado" aos poucos, com o período e a hora da análise no topo.
+    Clique de novo rapidamente (menos de 15 minutos) — a análise deve
+    aparecer quase na hora, com a mesma hora de antes (reaproveitada).
+    Troque o período (por exemplo para "1 ano") e clique de novo — dessa vez
+    deve chamar a IA de novo (mais devagar, digitando ao vivo).
 
 Se todos esses passos funcionarem, o app está redondo.
 
@@ -156,6 +237,12 @@ período para forçar uma nova tentativa.
 O atalho `Abrir app.bat` já ajusta isso; se ainda acontecer, feche e abra o
 app de novo pelo atalho (não rodando `python app.py` direto).
 
+**A janela "Análise do Dia" mostra um aviso em vez do texto.**
+Leia a mensagem — ela já explica o que fazer. As mais comuns: a chave da IA
+ainda não foi configurada (veja "Configurando a chave da IA"), o crédito da
+conta da Anthropic acabou (adicione mais em console.anthropic.com), ou a
+Anthropic está fora do ar por instantes (espere um pouco e tente de novo).
+
 **Quero rodar sem o atalho, direto pelo terminal.**
 Abra o PowerShell nesta pasta e rode:
 ```
@@ -171,8 +258,9 @@ python app.py
 | `app.py` | O motor do app: login, banco de dados, administração, busca de cotações |
 | `templates/` | As páginas HTML (login e o painel principal) |
 | `static/` | Visual (CSS), comportamento no navegador (JS) e a biblioteca de gráficos |
-| `.env` | Usuário/senha do primeiro administrador (não compartilhe) |
+| `.env` | Usuário/senha do primeiro administrador e a chave da IA (não compartilhe) |
 | `.env.exemplo` | Modelo do `.env`, para copiar caso precise recriá-lo |
+| `instrucoes_analise_ia.txt` | Instruções que a IA segue para escrever a "Análise do Dia" — pode ajustar à vontade |
 | `dados/banco.db` | Banco de dados: usuários, senhas (protegidas) e carteiras |
 | `requirements.txt` | Lista de bibliotecas Python usadas |
 | `CLAUDE.md` | Documentação técnica do projeto (para quem for mexer no código) |

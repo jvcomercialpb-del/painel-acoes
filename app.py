@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import os
 import secrets
 import sqlite3
@@ -23,6 +24,7 @@ from datetime import datetime, timedelta
 from functools import wraps
 from pathlib import Path
 
+import anthropic
 import yfinance as yf
 from dotenv import load_dotenv
 from flask import Flask, Response, jsonify, redirect, render_template, request, session, url_for
@@ -45,8 +47,31 @@ TICKERS_INICIAIS = ["PETR4", "ITUB4", "VALE3"]
 PERIODOS_VALIDOS = {"1mo", "3mo", "6mo", "ytd", "1y", "max"}
 PERIODO_PADRAO = "6mo"
 
+# Rótulo em português e "prazo" de cada período, usados no texto que vai para
+# a IA (ver "Análise do Dia" mais abaixo).
+PERIODO_INFO = {
+    "1mo": ("1 mês", "curto prazo"),
+    "3mo": ("3 meses", "curto prazo"),
+    "6mo": ("6 meses", "médio prazo"),
+    "ytd": ("no ano", "médio prazo"),
+    "1y": ("1 ano", "longo prazo"),
+    "max": ("máximo", "longo prazo"),
+}
+
 # Não busca de novo no Yahoo Finance se já buscamos há menos de 15 minutos.
 DURACAO_CACHE = timedelta(minutes=15)
+
+# Modelo mais barato da Anthropic no momento — suficiente para escrever um
+# texto curto e didático a partir de números já calculados aqui no app.
+MODELO_IA = "claude-haiku-4-5"
+
+# Arquivo com as instruções do agente de IA, separado do código para poder
+# ser ajustado sem mexer no resto do app.
+ARQUIVO_INSTRUCOES_IA = PASTA_BASE / "instrucoes_analise_ia.txt"
+
+# Reaproveita a "Análise do Dia" por 15 minutos para a mesma carteira e o
+# mesmo período, em vez de chamar a IA de novo a cada clique.
+DURACAO_CACHE_ANALISE = timedelta(minutes=15)
 
 # Depois de logar, a pessoa continua logada por até 7 dias (mesmo fechando
 # e abrindo o navegador de novo), a não ser que clique em "Sair".
@@ -467,6 +492,197 @@ def api_acoes_csv():
         buffer.getvalue(),
         mimetype="text/csv",
         headers={"Content-Disposition": f"attachment; filename=minha-carteira-{periodo}.csv"},
+    )
+
+
+# ================================================ API: ANÁLISE DO DIA (IA)
+
+def numero_br(valor: float, casas: int = 2) -> str:
+    """Formata um número no padrão brasileiro (1.234,56)."""
+    texto = f"{valor:,.{casas}f}"
+    return texto.replace(",", "@").replace(".", ",").replace("@", ".")
+
+
+def moeda_br(valor: float) -> str:
+    return f"R$ {numero_br(valor, 2)}"
+
+
+def percentual_br(valor: float, casas: int = 2) -> str:
+    sinal = "+" if valor > 0 else ("-" if valor < 0 else "")
+    return f"{sinal}{numero_br(abs(valor), casas)}%"
+
+
+def data_br(iso: str) -> str:
+    ano, mes, dia = iso.split("-")
+    return f"{dia}/{mes}/{ano}"
+
+
+def calcular_tendencia(ticker: str) -> str:
+    """Compara a média de 20 dias com a de 50 dias, usando até 1 ano de
+    histórico (independente do período escolhido na tela), para dar um sinal
+    de tendência mais estável do que olhar só o período selecionado."""
+    resultado = obter_historico_com_cache(ticker, "1y")
+    if "erro" in resultado:
+        return "dados insuficientes para calcular"
+    fechamentos = resultado["fechamentos"]
+    if len(fechamentos) < 50:
+        return "dados insuficientes para calcular (menos de 50 pregões de histórico)"
+    media20 = sum(fechamentos[-20:]) / 20
+    media50 = sum(fechamentos[-50:]) / 50
+    if media20 > media50:
+        return (
+            f"média de 20 dias ({moeda_br(media20)}) acima da média de 50 dias "
+            f"({moeda_br(media50)}) — indício de tendência de alta"
+        )
+    if media20 < media50:
+        return (
+            f"média de 20 dias ({moeda_br(media20)}) abaixo da média de 50 dias "
+            f"({moeda_br(media50)}) — indício de tendência de baixa"
+        )
+    return "média de 20 dias igual à média de 50 dias — sem tendência clara"
+
+
+def montar_bloco_dados(nome_usuario: str, periodo: str, tickers: list[str]) -> tuple[str, list[str]]:
+    """Monta o texto com os números da carteira que vai para a IA. A IA só
+    vê este texto — nunca os gráficos. Devolve o texto e a lista de tickers
+    que ficaram sem dados (para avisar o usuário mesmo em caso de erro)."""
+    rotulo, prazo = PERIODO_INFO[periodo]
+    linhas = [
+        f"Data de hoje: {datetime.now().strftime('%d/%m/%Y')}",
+        f"Nome do usuário: {nome_usuario}",
+        f"Período analisado: {rotulo} ({prazo})",
+        "",
+        "Ações da carteira:",
+    ]
+    sem_dados = []
+    for ticker in tickers:
+        resultado = obter_historico_com_cache(ticker, periodo)
+        if "erro" in resultado:
+            sem_dados.append(ticker)
+            linhas.append(f"- {ticker}: sem dados ({resultado['erro']}). Ficou fora da análise.")
+            continue
+        datas, fechamentos = resultado["datas"], resultado["fechamentos"]
+        indicadores = calcular_indicadores(datas, fechamentos)
+        preco_atual = indicadores["precoFinal"]
+        maxima_valor = indicadores["maxima"]["valor"]
+        abaixo_maxima = ((maxima_valor - preco_atual) / maxima_valor * 100) if maxima_valor else 0.0
+        if len(fechamentos) >= 6 and fechamentos[-6]:
+            texto_5_pregoes = percentual_br((fechamentos[-1] / fechamentos[-6] - 1) * 100)
+        else:
+            texto_5_pregoes = "dados insuficientes"
+        linhas.append(
+            f"- {ticker}: preço atual {moeda_br(preco_atual)} ({data_br(datas[-1])}). "
+            f"Variação no período: {percentual_br(indicadores['variacaoPct'])}. "
+            f"Mínima {moeda_br(indicadores['minima']['valor'])} ({data_br(indicadores['minima']['data'])}), "
+            f"máxima {moeda_br(maxima_valor)} ({data_br(indicadores['maxima']['data'])}) "
+            f"— hoje está {numero_br(abaixo_maxima)}% abaixo da máxima. "
+            f"Variação nos últimos 5 pregões: {texto_5_pregoes}. "
+            f"Tendência: {calcular_tendencia(ticker)}. "
+            f"Volatilidade anualizada: {numero_br(indicadores['volatilidade'], 1)}%."
+        )
+    return "\n".join(linhas), sem_dados
+
+
+def obter_instrucoes_ia() -> str:
+    return ARQUIVO_INSTRUCOES_IA.read_text(encoding="utf-8").strip()
+
+
+def erro_amigavel_ia(excecao: Exception) -> str:
+    """Traduz erros da API da Anthropic em mensagens amigáveis, em
+    português, sem nunca expor detalhe técnico ao usuário."""
+    if isinstance(excecao, anthropic.AuthenticationError):
+        return "A chave de acesso à IA não é válida. Peça para o administrador conferir a chave configurada."
+    if isinstance(excecao, anthropic.RateLimitError):
+        return "A IA está recebendo muitos pedidos agora. Espere um instante e tente de novo."
+    if isinstance(excecao, anthropic.APIStatusError):
+        if "credit" in str(excecao).lower():
+            return "O crédito da conta da IA acabou. Peça para o administrador adicionar mais crédito em console.anthropic.com."
+        return "A IA está com algum problema no momento. Tente novamente em instantes."
+    if isinstance(excecao, anthropic.APIConnectionError):
+        return "Não conseguimos falar com a IA agora. Pode ser a internet ou a Anthropic fora do ar — tente novamente em instantes."
+    return "Não conseguimos gerar a análise agora. Tente novamente em instantes."
+
+
+_cache_analise_trava = threading.Lock()
+_cache_analise: dict[tuple, dict] = {}
+
+
+@app.route("/api/analise-dia")
+@login_necessario
+def api_analise_dia():
+    periodo = request.args.get("periodo", PERIODO_PADRAO)
+    if periodo not in PERIODOS_VALIDOS:
+        return jsonify({"erro": "Período inválido."}), 400
+
+    with conectar_banco() as conexao:
+        usuario = usuario_por_id(conexao, session["usuario_id"])
+        tickers = [
+            linha["ticker"]
+            for linha in conexao.execute(
+                "SELECT ticker FROM carteira WHERE usuario_id = ? ORDER BY ticker", (session["usuario_id"],)
+            ).fetchall()
+        ]
+    if not tickers:
+        return jsonify({"erro": 'Sua carteira está vazia. Adicione ações em "Minha carteira" para receber uma análise.'}), 400
+
+    rotulo, prazo = PERIODO_INFO[periodo]
+    periodo_rotulo = f"{rotulo} ({prazo})"
+    chave_cache = (session["usuario_id"], periodo, tuple(tickers))
+
+    agora = datetime.now()
+    with _cache_analise_trava:
+        entrada = _cache_analise.get(chave_cache)
+    if entrada and (agora - entrada["geradoEmDt"]) < DURACAO_CACHE_ANALISE:
+        return jsonify({
+            "ok": True,
+            "cache": True,
+            "texto": entrada["texto"],
+            "periodoRotulo": periodo_rotulo,
+            "geradoEm": entrada["geradoEm"],
+            "semDados": entrada["semDados"],
+        })
+
+    chave_ia = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    if not chave_ia:
+        return jsonify({
+            "erro": "A análise por IA ainda não foi configurada neste app. Peça para o administrador configurar a chave de acesso (ANTHROPIC_API_KEY).",
+        }), 503
+
+    bloco_dados, sem_dados = montar_bloco_dados(usuario["nome_completo"], periodo, tickers)
+    instrucoes = obter_instrucoes_ia()
+    gerado_em_texto = agora.strftime("%H:%M")
+
+    def gerar():
+        meta = {"tipo": "meta", "periodoRotulo": periodo_rotulo, "geradoEm": gerado_em_texto, "semDados": sem_dados}
+        yield json.dumps(meta) + "\n"
+        cliente = anthropic.Anthropic(api_key=chave_ia)
+        pedacos_texto = []
+        try:
+            with cliente.messages.stream(
+                model=MODELO_IA,
+                max_tokens=1024,
+                system=instrucoes,
+                messages=[{"role": "user", "content": bloco_dados}],
+            ) as stream:
+                for pedaco in stream.text_stream:
+                    pedacos_texto.append(pedaco)
+                    yield pedaco
+        except Exception as excecao:  # nunca deixa um erro técnico chegar à tela
+            yield "\n[[ERRO]]" + erro_amigavel_ia(excecao)
+            return
+        texto_final = "".join(pedacos_texto)
+        with _cache_analise_trava:
+            _cache_analise[chave_cache] = {
+                "texto": texto_final,
+                "geradoEm": gerado_em_texto,
+                "geradoEmDt": agora,
+                "semDados": sem_dados,
+            }
+
+    return Response(
+        gerar(),
+        mimetype="text/plain",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 

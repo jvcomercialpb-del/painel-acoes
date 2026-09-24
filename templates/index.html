@@ -99,6 +99,29 @@
           </div>
           <div class="rolagem-tabela" id="ac-indicadores"></div>
         </section>
+
+        <!-- Botão flutuante: Análise do Dia -->
+        <button type="button" class="botao-flutuante" id="botao-analise-dia">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v2.5m0 13V21m9-9h-2.5m-13 0H3m14.8-6.8-1.8 1.8M8 16.8l-1.8 1.8m11.6-1.8 1.8 1.8M8 8l-1.8-1.8"/><circle cx="12" cy="12" r="3.3"/></svg>
+          <span>Análise do Dia</span>
+        </button>
+
+        <!-- Janela: Análise do Dia -->
+        <div class="janela-sobreposta" id="janela-analise" hidden>
+          <div class="janela-sobreposta__fundo" id="janela-analise-fundo"></div>
+          <div class="janela-analise" role="dialog" aria-modal="true" aria-labelledby="janela-analise-titulo">
+            <div class="janela-analise__cabecalho">
+              <div>
+                <h2 id="janela-analise-titulo">Análise do Dia</h2>
+                <p class="janela-analise__meta" id="janela-analise-meta"></p>
+              </div>
+              <button type="button" class="janela-analise__fechar" id="janela-analise-fechar" aria-label="Fechar">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+              </button>
+            </div>
+            <div class="janela-analise__corpo" id="janela-analise-corpo" aria-live="polite"></div>
+          </div>
+        </div>
       </section>
 
       <!-- Página: Minha carteira -->

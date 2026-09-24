@@ -350,6 +350,168 @@
     renderIndicadoresAcoes(resultado.acoes);
   }
 
+  // ========================================================= ANÁLISE DO DIA
+  const MARCADOR_ERRO_ANALISE = '[[ERRO]]';
+  let leitorAnaliseAtual = null;
+
+  function formatarMarkdownSimples(texto) {
+    const linhas = escapar(texto).split('\n');
+    let html = '';
+    let dentroLista = false;
+    for (const linhaBruta of linhas) {
+      const linha = linhaBruta
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>');
+      const itemLista = /^-\s+/.test(linhaBruta);
+      if (itemLista) {
+        if (!dentroLista) { html += '<ul>'; dentroLista = true; }
+        html += '<li>' + linha.replace(/^-\s+/, '') + '</li>';
+      } else {
+        if (dentroLista) { html += '</ul>'; dentroLista = false; }
+        if (linha.trim()) html += '<p>' + linha + '</p>';
+      }
+    }
+    if (dentroLista) html += '</ul>';
+    return html;
+  }
+
+  function definirMetaAnalise(periodoRotulo, geradoEm, semDados) {
+    let texto = (periodoRotulo || '') + ' · análise gerada às ' + (geradoEm || '');
+    if (semDados && semDados.length) texto += ' · sem dados: ' + semDados.join(', ');
+    $('janela-analise-meta').textContent = texto;
+  }
+
+  function digitarTextoLocal(textoCompleto) {
+    // Anima localmente uma análise reaproveitada do cache (não chama a IA de
+    // novo), para manter o mesmo efeito de "sendo escrita" na tela.
+    const corpoEl = $('janela-analise-corpo');
+    let indice = 0;
+    const passo = Math.max(2, Math.round(textoCompleto.length / 160));
+    (function proximo() {
+      indice = Math.min(textoCompleto.length, indice + passo);
+      corpoEl.innerHTML = formatarMarkdownSimples(textoCompleto.slice(0, indice)) +
+        (indice < textoCompleto.length ? '<span class="janela-analise__cursor"></span>' : '');
+      if (indice < textoCompleto.length) setTimeout(proximo, 12);
+    })();
+  }
+
+  function fecharJanelaAnalise() {
+    if (leitorAnaliseAtual) {
+      const leitor = leitorAnaliseAtual;
+      leitorAnaliseAtual = null;
+      leitor.cancel().catch(() => {});
+    }
+    $('janela-analise').hidden = true;
+  }
+
+  function abrirJanelaAnalise() {
+    $('janela-analise-meta').textContent = '';
+    $('janela-analise-corpo').innerHTML =
+      '<p class="janela-analise__carregando"><span class="janela-analise__ponto"></span>' +
+      '<span class="janela-analise__ponto"></span><span class="janela-analise__ponto"></span>Preparando a análise…</p>';
+    $('janela-analise').hidden = false;
+  }
+
+  async function iniciarAnaliseDia() {
+    abrirJanelaAnalise();
+    const botao = $('botao-analise-dia');
+    botao.disabled = true;
+
+    let resposta;
+    try {
+      resposta = await fetch('/api/analise-dia?periodo=' + encodeURIComponent(periodoAtual));
+    } catch (erro) {
+      $('janela-analise-corpo').innerHTML = '<p>Não conseguimos falar com o app agora. Confira sua internet e tente de novo.</p>';
+      botao.disabled = false;
+      return;
+    }
+
+    if (resposta.status === 401) {
+      window.location.href = '/login';
+      return;
+    }
+
+    const tipoConteudo = resposta.headers.get('content-type') || '';
+
+    if (tipoConteudo.includes('application/json')) {
+      let corpo = {};
+      try { corpo = await resposta.json(); } catch (erro) { /* sem corpo utilizável */ }
+      botao.disabled = false;
+      if (!resposta.ok || corpo.erro) {
+        $('janela-analise-corpo').innerHTML = '<p class="janela-analise__erro">' +
+          escapar(corpo.erro || 'Não foi possível gerar a análise agora. Tente de novo em instantes.') + '</p>';
+        return;
+      }
+      definirMetaAnalise(corpo.periodoRotulo, corpo.geradoEm, corpo.semDados);
+      digitarTextoLocal(corpo.texto);
+      return;
+    }
+
+    // Resposta em streaming: a primeira linha é o "meta" (JSON), o resto é o
+    // texto da análise chegando aos poucos, direto da IA.
+    const leitor = resposta.body.getReader();
+    leitorAnaliseAtual = leitor;
+    const decodificador = new TextDecoder('utf-8');
+    const corpoEl = $('janela-analise-corpo');
+    let bufer = '';
+    let meta = null;
+    let acumulado = '';
+    let erroRecebido = null;
+
+    try {
+      while (true) {
+        const { done, value } = await leitor.read();
+        if (value) bufer += decodificador.decode(value, { stream: true });
+        if (done) bufer += decodificador.decode();
+
+        if (!meta) {
+          const fimLinha = bufer.indexOf('\n');
+          if (fimLinha === -1) {
+            if (done) break;
+            continue;
+          }
+          try { meta = JSON.parse(bufer.slice(0, fimLinha)); } catch (erro) { meta = {}; }
+          bufer = bufer.slice(fimLinha + 1);
+          definirMetaAnalise(meta.periodoRotulo, meta.geradoEm, meta.semDados);
+          corpoEl.innerHTML = '';
+        }
+
+        const indiceMarcador = bufer.indexOf(MARCADOR_ERRO_ANALISE);
+        if (indiceMarcador !== -1) {
+          acumulado += bufer.slice(0, indiceMarcador);
+          erroRecebido = bufer.slice(indiceMarcador + MARCADOR_ERRO_ANALISE.length);
+          bufer = '';
+          corpoEl.innerHTML = formatarMarkdownSimples(acumulado);
+          break;
+        }
+
+        if (done) {
+          acumulado += bufer;
+          bufer = '';
+          corpoEl.innerHTML = formatarMarkdownSimples(acumulado);
+          break;
+        }
+
+        // guarda uma "cauda" do tamanho do marcador de erro, para o caso de
+        // ele chegar dividido entre dois pedaços do streaming
+        const seguro = Math.max(0, bufer.length - (MARCADOR_ERRO_ANALISE.length - 1));
+        acumulado += bufer.slice(0, seguro);
+        bufer = bufer.slice(seguro);
+        corpoEl.innerHTML = formatarMarkdownSimples(acumulado) + '<span class="janela-analise__cursor"></span>';
+        corpoEl.scrollTop = corpoEl.scrollHeight;
+      }
+    } catch (erro) {
+      if (leitorAnaliseAtual === null) { botao.disabled = false; return; } // janela fechada: cancelamento esperado
+      erroRecebido = 'Perdemos a conexão com a IA no meio da análise. Tente de novo em instantes.';
+    }
+    leitorAnaliseAtual = null;
+    botao.disabled = false;
+
+    if (erroRecebido && erroRecebido.trim()) {
+      corpoEl.innerHTML += '<p class="janela-analise__erro">' + escapar(erroRecebido.trim()) + '</p>';
+    }
+  }
+
   // ============================================================ CARTEIRA
   function renderListaCarteira(tickers) {
     const container = $('lista-carteira');
@@ -520,6 +682,13 @@
 
     // atualiza a página de Ações sozinha a cada 15 minutos
     setInterval(() => { if (paginaAtual === 'acoes') carregarAcoes(); }, 15 * 60 * 1000);
+
+    $('botao-analise-dia').addEventListener('click', () => { iniciarAnaliseDia(); });
+    $('janela-analise-fechar').addEventListener('click', fecharJanelaAnalise);
+    $('janela-analise-fundo').addEventListener('click', fecharJanelaAnalise);
+    document.addEventListener('keydown', (evento) => {
+      if (evento.key === 'Escape' && !$('janela-analise').hidden) fecharJanelaAnalise();
+    });
   }
 
   // ================================================================ INÍCIO
